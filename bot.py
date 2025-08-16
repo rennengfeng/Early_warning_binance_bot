@@ -245,8 +245,9 @@ class MonitorTask:
     def __init__(self, app):
         self.app = app
         self.price_history = {}
-        self.macd_history = {}
-        self.ma_history = {}
+        # 添加交叉状态记录字典
+        self.macd_cross_state = {}   # 存储每个交易对的MACD交叉状态
+        self.ma_cross_state = {}     # 存储每个交易对的MA交叉状态
         self.active = True
         self.task = None
 
@@ -364,27 +365,40 @@ class MonitorTask:
             current_signal = signal.iloc[-1]
             prev_signal = signal.iloc[-2]
             
+            # 初始化当前状态
+            current_state = None
+            
             # 金叉检测：MACD从下方穿越信号线
             if prev_macd < prev_signal and current_macd > current_signal:
-                message = (
-                    f"📈 MACD金叉信号: {symbol} ({MARKET_TYPE_NAMES[market_type]}) - {INTERVALS.get(DEFAULT_INTERVAL, DEFAULT_INTERVAL)}\n"
-                    f"• MACD: {current_macd:.4f}\n"
-                    f"• 信号线: {current_signal:.4f}\n"  # 修复变量名
-                    f"• 价格: {df['close'].iloc[-1]:.4f}\n"
-                    f"• 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                )
-                await self.app.bot.send_message(chat_id=user_id, text=message)
-            
+                current_state = "golden"
             # 死叉检测：MACD从上方穿越信号线
             elif prev_macd > prev_signal and current_macd < current_signal:
-                message = (
-                    f"📉 MACD死叉信号: {symbol} ({MARKET_TYPE_NAMES[market_type]}) - {INTERVALS.get(DEFAULT_INTERVAL, DEFAULT_INTERVAL)}\n"
-                    f"• MACD: {current_macd:.4f}\n"
-                    f"• 信号线: {current_signal:.4f}\n"  # 修复变量名
-                    f"• 价格: {df['close'].iloc[-1]:.4f}\n"
-                    f"• 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                )
+                current_state = "dead"
+            
+            # 获取上一次状态
+            last_state = self.macd_cross_state.get(key, None)
+            
+            # 如果状态发生变化（且不是初始状态None），则发送通知
+            if current_state is not None and current_state != last_state:
+                if current_state == "golden":
+                    message = (
+                        f"📈 MACD金叉信号: {symbol} ({MARKET_TYPE_NAMES[market_type]}) - {INTERVALS.get(DEFAULT_INTERVAL, DEFAULT_INTERVAL)}\n"
+                        f"• MACD: {current_macd:.4f}\n"
+                        f"• 信号线: {current_signal:.4f}\n"
+                        f"• 价格: {df['close'].iloc[-1]:.4f}\n"
+                        f"• 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
+                else:
+                    message = (
+                        f"📉 MACD死叉信号: {symbol} ({MARKET_TYPE_NAMES[market_type]}) - {INTERVALS.get(DEFAULT_INTERVAL, DEFAULT_INTERVAL)}\n"
+                        f"• MACD: {current_macd:.4f}\n"
+                        f"• 信号线: {current_signal:.4f}\n"
+                        f"• 价格: {df['close'].iloc[-1]:.4f}\n"
+                        f"• 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
                 await self.app.bot.send_message(chat_id=user_id, text=message)
+                # 更新状态
+                self.macd_cross_state[key] = current_state
             
         except Exception as e:
             logger.error(f"MACD监控出错: {e}")
@@ -418,27 +432,38 @@ class MonitorTask:
             current_ma26 = ma26.iloc[-1]
             prev_ma26 = ma26.iloc[-2]
             
+            # 初始化当前状态
+            current_state = None
+            
             # 金叉检测：MA9从下方穿越MA26
             if prev_ma9 < prev_ma26 and current_ma9 > current_ma26:
-                message = (
-                    f"📈 MA金叉信号: {symbol} ({MARKET_TYPE_NAMES[market_type]}) - {INTERVALS.get(DEFAULT_INTERVAL, DEFAULT_INTERVAL)}\n"
-                    f"• MA9: {current_ma9:.4f}\n"
-                    f"• MA26: {current_ma26:.4f}\n"
-                    f"• 价格: {df['close'].iloc[-1]:.4f}\n"
-                    f"• 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                )
-                await self.app.bot.send_message(chat_id=user_id, text=message)
-            
+                current_state = "golden"
             # 死叉检测：MA9从上方穿越MA26
             elif prev_ma9 > prev_ma26 and current_ma9 < current_ma26:
-                message = (
-                    f"📉 MA死叉信号: {symbol} ({MARKET_TYPE_NAMES[market_type]}) - {INTERVALS.get(DEFAULT_INTERVAL, DEFAULT_INTERVAL)}\n"
-                    f"• MA9: {current_ma9:.4f}\n"
-                    f"• MA26: {current_ma26:.4f}\n"
-                    f"• 价格: {df['close'].iloc[-1]:.4f}\n"
-                    f"• 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                )
+                current_state = "dead"
+            
+            # 获取上一次状态
+            last_state = self.ma_cross_state.get(key, None)
+            
+            if current_state is not None and current_state != last_state:
+                if current_state == "golden":
+                    message = (
+                        f"📈 MA金叉信号: {symbol} ({MARKET_TYPE_NAMES[market_type]}) - {INTERVALS.get(DEFAULT_INTERVAL, DEFAULT_INTERVAL)}\n"
+                        f"• MA9: {current_ma9:.4f}\n"
+                        f"• MA26: {current_ma26:.4f}\n"
+                        f"• 价格: {df['close'].iloc[-1]:.4f}\n"
+                        f"• 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
+                else:
+                    message = (
+                        f"📉 MA死叉信号: {symbol} ({MARKET_TYPE_NAMES[market_type]}) - {INTERVALS.get(DEFAULT_INTERVAL, DEFAULT_INTERVAL)}\n"
+                        f"• MA9: {current_ma9:.4f}\n"
+                        f"• MA26: {current_ma26:.4f}\n"
+                        f"• 价格: {df['close'].iloc[-1]:.4f}\n"
+                        f"• 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
                 await self.app.bot.send_message(chat_id=user_id, text=message)
+                self.ma_cross_state[key] = current_state
             
         except Exception as e:
             logger.error(f"MA交叉监控出错: {e}")
